@@ -1,0 +1,246 @@
+syntax = "proto3";
+
+package edgecb.index.v1;
+
+option go_package = "github.com/edgecouchbase/edgecouchbase/proto/index/v1;indexpb";
+
+import "google/protobuf/struct.proto";
+
+// IndexService provides secondary index management and querying.
+service IndexService {
+  // CreateIndex creates a new secondary index on a collection
+  rpc CreateIndex(CreateIndexRequest) returns (CreateIndexResponse);
+  
+  // DropIndex removes an existing index
+  rpc DropIndex(DropIndexRequest) returns (DropIndexResponse);
+  
+  // ListIndexes returns all indexes for a bucket/scope/collection
+  rpc ListIndexes(ListIndexesRequest) returns (ListIndexesResponse);
+  
+  // GetIndexStats retrieves statistics for an index
+  rpc GetIndexStats(GetIndexStatsRequest) returns (GetIndexStatsResponse);
+  
+  // BuildIndex starts index build (for deferred indexes)
+  rpc BuildIndex(BuildIndexRequest) returns (stream BuildIndexResponse);
+  
+  // Scan performs an index scan
+  rpc Scan(ScanRequest) returns (stream ScanResponse);
+  
+  // RangeScan performs a range scan on an index
+  rpc RangeScan(RangeScanRequest) returns (stream ScanResponse);
+}
+
+message CreateIndexRequest {
+  string bucket = 1;
+  string scope = 2;
+  string collection = 3;
+  string index_name = 4;
+  
+  // Index keys (e.g., ["field1", "field2.nested"])
+  repeated string keys = 5;
+  
+  // Optional: WHERE clause for partial index
+  string where_clause = 6;
+  
+  // Index options
+  IndexOptions options = 7;
+}
+
+message IndexOptions {
+  // Defer building until explicit BUILD INDEX command
+  bool deferred = 1;
+  
+  // Number of replicas (for HA)
+  uint32 num_replicas = 2;
+  
+  // Index type
+  IndexType index_type = 3;
+  
+  // Partition keys (for partitioned indexes)
+  repeated string partition_keys = 4;
+  
+  enum IndexType {
+    INDEX_TYPE_BTREE = 0;
+    INDEX_TYPE_MEMORY_OPTIMIZED = 1;
+  }
+}
+
+message CreateIndexResponse {
+  bool success = 1;
+  string message = 2;
+  IndexInfo index_info = 3;
+}
+
+message IndexInfo {
+  string index_name = 1;
+  string bucket = 2;
+  string scope = 3;
+  string collection = 4;
+  repeated string keys = 5;
+  string where_clause = 6;
+  IndexState state = 7;
+  IndexOptions options = 8;
+  
+  enum IndexState {
+    INDEX_STATE_BUILDING = 0;
+    INDEX_STATE_ONLINE = 1;
+    INDEX_STATE_OFFLINE = 2;
+    INDEX_STATE_DEFERRED = 3;
+  }
+}
+
+message DropIndexRequest {
+  string bucket = 1;
+  string scope = 2;
+  string collection = 3;
+  string index_name = 4;
+}
+
+message DropIndexResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ListIndexesRequest {
+  string bucket = 1;
+  string scope = 2;  // Empty = all scopes
+  string collection = 3;  // Empty = all collections
+}
+
+message ListIndexesResponse {
+  repeated IndexInfo indexes = 1;
+}
+
+message GetIndexStatsRequest {
+  string bucket = 1;
+  string scope = 2;
+  string collection = 3;
+  string index_name = 4;
+}
+
+message GetIndexStatsResponse {
+  IndexStats stats = 1;
+}
+
+message IndexStats {
+  string index_name = 1;
+  uint64 num_docs_indexed = 2;
+  uint64 num_docs_pending = 3;
+  uint64 index_size_bytes = 4;
+  uint64 scan_requests = 5;
+  uint64 scan_duration_ms = 6;
+  double avg_scan_latency_ms = 7;
+  google.protobuf.Timestamp last_scan_time = 8;
+}
+
+message BuildIndexRequest {
+  string bucket = 1;
+  string scope = 2;
+  string collection = 3;
+  repeated string index_names = 4;
+}
+
+message BuildIndexResponse {
+  oneof message {
+    BuildProgress progress = 1;
+    BuildComplete complete = 2;
+    BuildError error = 3;
+  }
+}
+
+message BuildProgress {
+  string index_name = 1;
+  uint64 docs_processed = 2;
+  uint64 total_docs = 3;
+  double percent_complete = 4;
+}
+
+message BuildComplete {
+  string index_name = 1;
+  uint64 total_docs = 2;
+  uint64 duration_ms = 3;
+}
+
+message BuildError {
+  string index_name = 1;
+  uint32 code = 2;
+  string message = 3;
+}
+
+message ScanRequest {
+  string bucket = 1;
+  string scope = 2;
+  string collection = 3;
+  string index_name = 4;
+  
+  // Scan options
+  ScanOptions options = 5;
+}
+
+message RangeScanRequest {
+  string bucket = 1;
+  string scope = 2;
+  string collection = 3;
+  string index_name = 4;
+  
+  // Range specification
+  repeated google.protobuf.Value start_key = 5;
+  repeated google.protobuf.Value end_key = 6;
+  
+  // Inclusion flags
+  bool start_inclusive = 7;
+  bool end_inclusive = 8;
+  
+  // Scan options
+  ScanOptions options = 9;
+}
+
+message ScanOptions {
+  // Limit number of results
+  uint64 limit = 1;
+  
+  // Skip first N results
+  uint64 offset = 2;
+  
+  // Scan consistency
+  ScanConsistency consistency = 3;
+  
+  // Project only specific fields
+  repeated string projection = 4;
+  
+  enum ScanConsistency {
+    SCAN_CONSISTENCY_NOT_BOUNDED = 0;
+    SCAN_CONSISTENCY_REQUEST_PLUS = 1;
+    SCAN_CONSISTENCY_STATEMENT_PLUS = 2;
+  }
+}
+
+message ScanResponse {
+  oneof message {
+    ScanRow row = 1;
+    ScanMetrics metrics = 2;
+    ScanError error = 3;
+  }
+}
+
+message ScanRow {
+  // Index keys
+  repeated google.protobuf.Value key = 1;
+  
+  // Document key
+  string doc_key = 2;
+  
+  // Optional: full document (if covering index or projection)
+  google.protobuf.Struct document = 3;
+}
+
+message ScanMetrics {
+  uint64 rows_scanned = 1;
+  uint64 rows_returned = 2;
+  uint64 scan_duration_ms = 3;
+}
+
+message ScanError {
+  uint32 code = 1;
+  string message = 2;
+}

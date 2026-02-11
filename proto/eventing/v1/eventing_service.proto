@@ -1,0 +1,278 @@
+syntax = "proto3";
+
+package edgecb.eventing.v1;
+
+option go_package = "github.com/edgecouchbase/edgecouchbase/proto/eventing/v1;eventingpb";
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+// EventingService provides serverless functions triggered by data mutations.
+service EventingService {
+  // DeployFunction deploys a new eventing function
+  rpc DeployFunction(DeployFunctionRequest) returns (DeployFunctionResponse);
+  
+  // UndeployFunction removes a deployed function
+  rpc UndeployFunction(UndeployFunctionRequest) returns (UndeployFunctionResponse);
+  
+  // PauseFunction pauses function execution
+  rpc PauseFunction(PauseFunctionRequest) returns (PauseFunctionResponse);
+  
+  // ResumeFunction resumes a paused function
+  rpc ResumeFunction(ResumeFunctionRequest) returns (ResumeFunctionResponse);
+  
+  // ListFunctions lists all eventing functions
+  rpc ListFunctions(ListFunctionsRequest) returns (ListFunctionsResponse);
+  
+  // GetFunctionStats retrieves function execution statistics
+  rpc GetFunctionStats(GetFunctionStatsRequest) returns (GetFunctionStatsResponse);
+  
+  // GetFunctionLogs retrieves function execution logs
+  rpc GetFunctionLogs(GetFunctionLogsRequest) returns (stream GetFunctionLogsResponse);
+}
+
+message DeployFunctionRequest {
+  string function_name = 1;
+  FunctionConfig config = 2;
+  string code = 3;  // JavaScript or WASM module
+}
+
+message FunctionConfig {
+  // Source bucket/scope/collection to monitor
+  string source_bucket = 1;
+  string source_scope = 2;
+  string source_collection = 3;
+  
+  // Metadata bucket for checkpoints and DLQ
+  string metadata_bucket = 4;
+  
+  // Trigger settings
+  TriggerSettings trigger = 5;
+  
+  // Function bindings (access to other buckets, external services)
+  repeated Binding bindings = 6;
+  
+  // Runtime settings
+  RuntimeSettings runtime = 7;
+  
+  // Dead letter queue settings
+  DLQSettings dlq = 8;
+}
+
+message TriggerSettings {
+  // Trigger on mutations
+  bool on_update = 1;
+  bool on_delete = 2;
+  
+  // Optional: filter expression (SQL++ WHERE clause)
+  string filter = 3;
+  
+  // Timer settings (for scheduled execution)
+  TimerSettings timer = 4;
+}
+
+message TimerSettings {
+  // Cron expression (e.g., "0 0 * * *" for daily at midnight)
+  string cron = 1;
+  
+  // Interval in seconds (alternative to cron)
+  uint32 interval_seconds = 2;
+}
+
+message Binding {
+  string alias = 1;  // Name used in function code
+  
+  oneof binding_type {
+    BucketBinding bucket = 2;
+    URLBinding url = 3;
+    ConstBinding constant = 4;
+  }
+}
+
+message BucketBinding {
+  string bucket = 1;
+  string scope = 2;
+  string collection = 3;
+  AccessMode access = 4;
+  
+  enum AccessMode {
+    ACCESS_MODE_READ_ONLY = 0;
+    ACCESS_MODE_READ_WRITE = 1;
+  }
+}
+
+message URLBinding {
+  string url = 1;
+  bool allow_cookies = 2;
+  bool validate_ssl = 3;
+  map<string, string> headers = 4;
+  AuthMethod auth = 5;
+  
+  enum AuthMethod {
+    AUTH_METHOD_NONE = 0;
+    AUTH_METHOD_BASIC = 1;
+    AUTH_METHOD_BEARER = 2;
+    AUTH_METHOD_DIGEST = 3;
+  }
+}
+
+message ConstBinding {
+  string literal = 1;
+}
+
+message RuntimeSettings {
+  // Language runtime
+  Runtime runtime = 1;
+  
+  // Worker pool size
+  uint32 worker_count = 2;
+  
+  // Execution timeout (ms)
+  uint32 timeout_ms = 3;
+  
+  // Memory limit per worker (bytes)
+  uint64 memory_limit_bytes = 4;
+  
+  // CPU limit (millicores, 1000 = 1 core)
+  uint32 cpu_limit_millicores = 5;
+  
+  // Batch size (number of mutations to batch)
+  uint32 batch_size = 6;
+  
+  // Processing guarantee
+  ProcessingGuarantee guarantee = 7;
+  
+  enum Runtime {
+    RUNTIME_JAVASCRIPT = 0;
+    RUNTIME_WASM = 1;
+  }
+  
+  enum ProcessingGuarantee {
+    PROCESSING_AT_MOST_ONCE = 0;
+    PROCESSING_AT_LEAST_ONCE = 1;
+  }
+}
+
+message DLQSettings {
+  // Enable dead letter queue
+  bool enabled = 1;
+  
+  // Max retries before DLQ
+  uint32 max_retries = 2;
+  
+  // Retry backoff (exponential)
+  uint32 retry_backoff_ms = 3;
+}
+
+message DeployFunctionResponse {
+  bool success = 1;
+  string message = 2;
+  string function_uuid = 3;
+}
+
+message UndeployFunctionRequest {
+  string function_name = 1;
+}
+
+message UndeployFunctionResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message PauseFunctionRequest {
+  string function_name = 1;
+}
+
+message PauseFunctionResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ResumeFunctionRequest {
+  string function_name = 1;
+}
+
+message ResumeFunctionResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ListFunctionsRequest {
+  // Optional: filter by bucket
+  string bucket = 1;
+}
+
+message ListFunctionsResponse {
+  repeated FunctionInfo functions = 1;
+}
+
+message FunctionInfo {
+  string function_name = 1;
+  string function_uuid = 2;
+  FunctionConfig config = 3;
+  FunctionState state = 4;
+  google.protobuf.Timestamp deployed_at = 5;
+  
+  enum FunctionState {
+    FUNCTION_STATE_UNDEPLOYED = 0;
+    FUNCTION_STATE_DEPLOYING = 1;
+    FUNCTION_STATE_DEPLOYED = 2;
+    FUNCTION_STATE_PAUSED = 3;
+    FUNCTION_STATE_ERROR = 4;
+  }
+}
+
+message GetFunctionStatsRequest {
+  string function_name = 1;
+}
+
+message GetFunctionStatsResponse {
+  FunctionStats stats = 1;
+}
+
+message FunctionStats {
+  string function_name = 1;
+  uint64 events_processed = 2;
+  uint64 events_failed = 3;
+  uint64 events_in_dlq = 4;
+  double avg_execution_time_ms = 5;
+  double p95_execution_time_ms = 6;
+  double p99_execution_time_ms = 7;
+  uint64 current_backlog = 8;
+  uint32 active_workers = 9;
+  google.protobuf.Timestamp last_execution = 10;
+}
+
+message GetFunctionLogsRequest {
+  string function_name = 1;
+  
+  // Time range
+  google.protobuf.Timestamp start_time = 2;
+  google.protobuf.Timestamp end_time = 3;
+  
+  // Log level filter
+  LogLevel level = 4;
+  
+  // Limit
+  uint32 limit = 5;
+  
+  enum LogLevel {
+    LOG_LEVEL_ALL = 0;
+    LOG_LEVEL_DEBUG = 1;
+    LOG_LEVEL_INFO = 2;
+    LOG_LEVEL_WARN = 3;
+    LOG_LEVEL_ERROR = 4;
+  }
+}
+
+message GetFunctionLogsResponse {
+  LogEntry entry = 1;
+}
+
+message LogEntry {
+  google.protobuf.Timestamp timestamp = 1;
+  string function_name = 2;
+  string level = 3;
+  string message = 4;
+  map<string, google.protobuf.Value> metadata = 5;
+}

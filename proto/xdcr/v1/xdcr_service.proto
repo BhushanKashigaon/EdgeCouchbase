@@ -1,0 +1,308 @@
+syntax = "proto3";
+
+package edgecb.xdcr.v1;
+
+option go_package = "github.com/edgecouchbase/edgecouchbase/proto/xdcr/v1;xdcrpb";
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+// XDCRService provides cross-datacenter replication management.
+service XDCRService {
+  // CreateRemoteCluster registers a remote cluster for XDCR
+  rpc CreateRemoteCluster(CreateRemoteClusterRequest) returns (CreateRemoteClusterResponse);
+  
+  // DeleteRemoteCluster removes a remote cluster registration
+  rpc DeleteRemoteCluster(DeleteRemoteClusterRequest) returns (DeleteRemoteClusterResponse);
+  
+  // ListRemoteClusters lists all registered remote clusters
+  rpc ListRemoteClusters(ListRemoteClustersRequest) returns (ListRemoteClustersResponse);
+  
+  // CreateReplication creates a new XDCR replication
+  rpc CreateReplication(CreateReplicationRequest) returns (CreateReplicationResponse);
+  
+  // DeleteReplication removes an XDCR replication
+  rpc DeleteReplication(DeleteReplicationRequest) returns (DeleteReplicationResponse);
+  
+  // PauseReplication pauses a replication
+  rpc PauseReplication(PauseReplicationRequest) returns (PauseReplicationResponse);
+  
+  // ResumeReplication resumes a paused replication
+  rpc ResumeReplication(ResumeReplicationRequest) returns (ResumeReplicationResponse);
+  
+  // ListReplications lists all replications
+  rpc ListReplications(ListReplicationsRequest) returns (ListReplicationsResponse);
+  
+  // GetReplicationStats retrieves replication statistics
+  rpc GetReplicationStats(GetReplicationStatsRequest) returns (GetReplicationStatsResponse);
+}
+
+message CreateRemoteClusterRequest {
+  string name = 1;  // Friendly name for the cluster
+  string hostname = 2;
+  uint32 port = 3;
+  
+  // Authentication
+  string username = 4;
+  string password = 5;
+  
+  // TLS settings
+  bool use_tls = 6;
+  bytes certificate = 7;  // Optional: cert for validation
+  
+  // Network settings
+  NetworkSettings network = 8;
+}
+
+message NetworkSettings {
+  // Connection pool size
+  uint32 pool_size = 1;
+  
+  // Connection timeout (ms)
+  uint32 connection_timeout_ms = 2;
+  
+  // Enable HTTP/2
+  bool enable_http2 = 3;
+}
+
+message CreateRemoteClusterResponse {
+  bool success = 1;
+  string message = 2;
+  string cluster_uuid = 3;
+}
+
+message DeleteRemoteClusterRequest {
+  string name = 1;
+}
+
+message DeleteRemoteClusterResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ListRemoteClustersRequest {}
+
+message ListRemoteClustersResponse {
+  repeated RemoteClusterInfo clusters = 1;
+}
+
+message RemoteClusterInfo {
+  string name = 1;
+  string cluster_uuid = 2;
+  string hostname = 3;
+  uint32 port = 4;
+  bool use_tls = 5;
+  ClusterStatus status = 6;
+  google.protobuf.Timestamp last_checked = 7;
+  
+  enum ClusterStatus {
+    CLUSTER_STATUS_UNKNOWN = 0;
+    CLUSTER_STATUS_REACHABLE = 1;
+    CLUSTER_STATUS_UNREACHABLE = 2;
+    CLUSTER_STATUS_AUTH_FAILED = 3;
+  }
+}
+
+message CreateReplicationRequest {
+  string replication_id = 1;
+  
+  // Source
+  string source_bucket = 2;
+  string source_scope = 3;
+  string source_collection = 4;
+  
+  // Target
+  string target_cluster = 5;
+  string target_bucket = 6;
+  string target_scope = 7;
+  string target_collection = 8;
+  
+  // Replication settings
+  ReplicationSettings settings = 9;
+}
+
+message ReplicationSettings {
+  // Replication mode
+  ReplicationMode mode = 1;
+  
+  // Filtering
+  string filter_expression = 2;  // SQL++ WHERE clause
+  
+  // Conflict resolution
+  ConflictResolution conflict_resolution = 3;
+  
+  // Network settings
+  NetworkOptimization network = 4;
+  
+  // Advanced settings
+  AdvancedSettings advanced = 5;
+  
+  enum ReplicationMode {
+    REPLICATION_MODE_CONTINUOUS = 0;
+    REPLICATION_MODE_ONE_TIME = 1;
+  }
+  
+  enum ConflictResolution {
+    CONFLICT_RESOLUTION_SEQ_NO = 0;      // Highest sequence number wins
+    CONFLICT_RESOLUTION_TIMESTAMP = 1;   // Latest timestamp wins
+    CONFLICT_RESOLUTION_CUSTOM = 2;      // Custom merge function
+  }
+}
+
+message NetworkOptimization {
+  // Compression
+  bool enable_compression = 1;
+  CompressionType compression_type = 2;
+  
+  // Bandwidth throttling (bytes/sec, 0 = unlimited)
+  uint64 bandwidth_limit = 3;
+  
+  // Batch settings
+  uint32 batch_count = 4;
+  uint32 batch_size_kb = 5;
+  
+  // Network protocol
+  bool enable_http2 = 6;
+  
+  enum CompressionType {
+    COMPRESSION_TYPE_NONE = 0;
+    COMPRESSION_TYPE_SNAPPY = 1;
+    COMPRESSION_TYPE_LZ4 = 2;
+    COMPRESSION_TYPE_ZSTD = 3;
+  }
+}
+
+message AdvancedSettings {
+  // Worker threads
+  uint32 worker_count = 1;
+  
+  // Checkpoint interval (ms)
+  uint32 checkpoint_interval_ms = 2;
+  
+  // Failure retry interval (ms)
+  uint32 retry_interval_ms = 3;
+  
+  // Max retries before giving up
+  uint32 max_retries = 4;
+  
+  // Priority (1 = highest, 10 = lowest)
+  uint32 priority = 5;
+  
+  // Statistics interval (ms)
+  uint32 stats_interval_ms = 6;
+  
+  // Optimistic replication (send before durability)
+  bool optimistic_replication_threshold = 7;
+}
+
+message CreateReplicationResponse {
+  bool success = 1;
+  string message = 2;
+  string replication_uuid = 3;
+}
+
+message DeleteReplicationRequest {
+  string replication_id = 1;
+}
+
+message DeleteReplicationResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message PauseReplicationRequest {
+  string replication_id = 1;
+}
+
+message PauseReplicationResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ResumeReplicationRequest {
+  string replication_id = 1;
+}
+
+message ResumeReplicationResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ListReplicationsRequest {
+  // Optional filters
+  string source_bucket = 1;
+  string target_cluster = 2;
+}
+
+message ListReplicationsResponse {
+  repeated ReplicationInfo replications = 1;
+}
+
+message ReplicationInfo {
+  string replication_id = 1;
+  string replication_uuid = 2;
+  
+  // Source
+  string source_bucket = 3;
+  string source_scope = 4;
+  string source_collection = 5;
+  
+  // Target
+  string target_cluster = 6;
+  string target_bucket = 7;
+  string target_scope = 8;
+  string target_collection = 9;
+  
+  ReplicationSettings settings = 10;
+  ReplicationState state = 11;
+  google.protobuf.Timestamp created_at = 12;
+  
+  enum ReplicationState {
+    REPLICATION_STATE_STOPPED = 0;
+    REPLICATION_STATE_STARTING = 1;
+    REPLICATION_STATE_RUNNING = 2;
+    REPLICATION_STATE_PAUSED = 3;
+    REPLICATION_STATE_ERROR = 4;
+  }
+}
+
+message GetReplicationStatsRequest {
+  string replication_id = 1;
+}
+
+message GetReplicationStatsResponse {
+  ReplicationStats stats = 1;
+}
+
+message ReplicationStats {
+  string replication_id = 1;
+  
+  // Throughput
+  uint64 docs_written = 2;
+  uint64 docs_failed = 3;
+  uint64 data_replicated_bytes = 4;
+  double docs_per_sec = 5;
+  double bandwidth_usage_bytes_per_sec = 6;
+  
+  // Latency
+  uint64 changes_left = 7;
+  uint64 docs_checked = 8;
+  uint64 docs_filtered = 9;
+  double avg_replication_latency_ms = 10;
+  google.protobuf.Timestamp last_replicated = 11;
+  
+  // Errors
+  uint64 error_count = 12;
+  repeated ReplicationError recent_errors = 13;
+  
+  // Active state
+  uint32 active_vbuckets = 14;
+  uint32 waiting_vbuckets = 15;
+}
+
+message ReplicationError {
+  google.protobuf.Timestamp timestamp = 1;
+  string error_code = 2;
+  string error_message = 3;
+  uint32 vbucket_id = 4;
+}

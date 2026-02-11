@@ -1,0 +1,254 @@
+syntax = "proto3";
+
+package edgecb.analytics.v1;
+
+option go_package = "github.com/edgecouchbase/edgecouchbase/proto/analytics/v1;analyticspb";
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+// AnalyticsService provides MPP query execution on shadow datasets.
+service AnalyticsService {
+  // CreateDataverse creates a new analytics dataverse
+  rpc CreateDataverse(CreateDataverseRequest) returns (CreateDataverseResponse);
+  
+  // DropDataverse removes a dataverse
+  rpc DropDataverse(DropDataverseRequest) returns (DropDataverseResponse);
+  
+  // CreateDataset creates a shadow dataset from a collection
+  rpc CreateDataset(CreateDatasetRequest) returns (CreateDatasetResponse);
+  
+  // DropDataset removes a dataset
+  rpc DropDataset(DropDatasetRequest) returns (DropDatasetResponse);
+  
+  // ConnectLink starts ingestion from KV via DCP
+  rpc ConnectLink(ConnectLinkRequest) returns (ConnectLinkResponse);
+  
+  // DisconnectLink stops ingestion
+  rpc DisconnectLink(DisconnectLinkRequest) returns (DisconnectLinkResponse);
+  
+  // Query executes an analytics query (SQL++ dialect)
+  rpc Query(AnalyticsQueryRequest) returns (stream AnalyticsQueryResponse);
+  
+  // GetDatasetStats retrieves dataset statistics
+  rpc GetDatasetStats(GetDatasetStatsRequest) returns (GetDatasetStatsResponse);
+}
+
+message CreateDataverseRequest {
+  string dataverse = 1;
+  bool if_not_exists = 2;
+}
+
+message CreateDataverseResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message DropDataverseRequest {
+  string dataverse = 1;
+  bool if_exists = 2;
+}
+
+message DropDataverseResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message CreateDatasetRequest {
+  string dataverse = 1;
+  string dataset_name = 2;
+  
+  // Source bucket.scope.collection
+  string bucket = 3;
+  string scope = 4;
+  string collection = 5;
+  
+  // Optional: WHERE clause for filtering
+  string where_clause = 6;
+  
+  // Storage options
+  DatasetOptions options = 7;
+}
+
+message DatasetOptions {
+  // Storage format
+  StorageFormat format = 1;
+  
+  // Partitioning key
+  repeated string partition_by = 2;
+  
+  // Number of partitions
+  uint32 num_partitions = 3;
+  
+  enum StorageFormat {
+    STORAGE_FORMAT_ROW = 0;      // Row-oriented (default)
+    STORAGE_FORMAT_COLUMN = 1;   // Columnar (Parquet-like)
+  }
+}
+
+message CreateDatasetResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message DropDatasetRequest {
+  string dataverse = 1;
+  string dataset_name = 2;
+  bool if_exists = 3;
+}
+
+message DropDatasetResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ConnectLinkRequest {
+  string dataverse = 1;
+  string link_name = 2;
+  
+  // Source dataset
+  string dataset_name = 3;
+}
+
+message ConnectLinkResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message DisconnectLinkRequest {
+  string dataverse = 1;
+  string link_name = 2;
+}
+
+message DisconnectLinkResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message AnalyticsQueryRequest {
+  string statement = 1;
+  
+  // Query parameters
+  map<string, google.protobuf.Value> named_params = 2;
+  repeated google.protobuf.Value positional_params = 3;
+  
+  // Query options
+  AnalyticsQueryOptions options = 4;
+}
+
+message AnalyticsQueryOptions {
+  // Timeout for query execution
+  uint32 timeout_ms = 1;
+  
+  // Maximum parallelism (MPP degree)
+  uint32 max_parallelism = 2;
+  
+  // Memory limit per operator
+  uint64 memory_limit_bytes = 3;
+  
+  // Client context ID for tracking
+  string client_context_id = 4;
+  
+  // Enable profiling
+  bool profile = 5;
+  
+  // Priority (1 = highest, 10 = lowest)
+  uint32 priority = 6;
+  
+  // Format for result
+  ResultFormat result_format = 7;
+  
+  enum ResultFormat {
+    RESULT_FORMAT_JSON = 0;
+    RESULT_FORMAT_PARQUET = 1;
+    RESULT_FORMAT_ARROW = 2;
+  }
+}
+
+message AnalyticsQueryResponse {
+  oneof message {
+    ResultRow row = 1;
+    QueryMetrics metrics = 2;
+    QueryWarning warning = 3;
+    QueryError error = 4;
+    QueryStatus status = 5;
+    QueryProfile profile = 6;
+  }
+}
+
+message ResultRow {
+  google.protobuf.Struct data = 1;
+}
+
+message QueryMetrics {
+  uint64 elapsed_time_ms = 1;
+  uint64 execution_time_ms = 2;
+  uint64 result_count = 3;
+  uint64 result_size_bytes = 4;
+  uint64 processed_objects = 5;
+  uint64 error_count = 6;
+  uint64 warning_count = 7;
+}
+
+message QueryWarning {
+  uint32 code = 1;
+  string message = 2;
+}
+
+message QueryError {
+  uint32 code = 1;
+  string message = 2;
+}
+
+message QueryStatus {
+  string status = 1;  // "success", "failed", "timeout"
+}
+
+message QueryProfile {
+  repeated OperatorProfile operators = 1;
+  uint64 total_time_ms = 2;
+}
+
+message OperatorProfile {
+  string operator_name = 1;
+  uint64 execution_time_ms = 2;
+  uint64 input_rows = 3;
+  uint64 output_rows = 4;
+  uint64 memory_used_bytes = 5;
+  map<string, google.protobuf.Value> details = 6;
+}
+
+message GetDatasetStatsRequest {
+  string dataverse = 1;
+  string dataset_name = 2;
+}
+
+message GetDatasetStatsResponse {
+  DatasetStats stats = 1;
+}
+
+message DatasetStats {
+  string dataverse = 1;
+  string dataset_name = 2;
+  uint64 doc_count = 3;
+  uint64 size_bytes = 4;
+  IngestionStats ingestion = 5;
+  google.protobuf.Timestamp last_updated = 6;
+}
+
+message IngestionStats {
+  IngestionState state = 1;
+  uint64 docs_ingested = 2;
+  uint64 docs_pending = 3;
+  uint64 bytes_ingested = 4;
+  double ingestion_rate_docs_per_sec = 5;
+  google.protobuf.Timestamp last_ingestion_time = 6;
+  
+  enum IngestionState {
+    INGESTION_STATE_DISCONNECTED = 0;
+    INGESTION_STATE_CONNECTING = 1;
+    INGESTION_STATE_SYNCING = 2;
+    INGESTION_STATE_CONNECTED = 3;
+    INGESTION_STATE_PAUSED = 4;
+  }
+}

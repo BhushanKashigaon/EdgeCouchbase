@@ -1,0 +1,81 @@
+# Multi-stage build for EdgeCouchbase node
+
+# Stage 1: Build Rust services
+FROM rust:1.75-slim as rust-builder
+
+WORKDIR /build
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    protobuf-compiler \
+    libprotobuf-dev \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy workspace files
+COPY Cargo.toml Cargo.lock ./
+COPY server ./server
+COPY query ./query
+COPY index ./index
+COPY search ./search
+COPY analytics ./analytics
+COPY proto ./proto
+
+# Build release binaries
+RUN cargo build --release
+
+# Stage 2: Build Go services
+FROM golang:1.22-alpine as go-builder
+
+WORKDIR /build
+
+# Copy Go modules
+COPY ops/go.mod ops/go.sum ./ops/
+COPY proto ./proto
+
+# Download dependencies
+WORKDIR /build/ops
+RUN go mod download
+
+# Copy source
+COPY ops ./
+
+# Build binaries
+RUN go build -o /bin/edgecb-admin ./cmd/admin
+RUN go build -o /bin/edgecb-cli ./cmd/cli
+
+# Stage 3: Final runtime image
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app user
+RUN useradd -m -u 1000 edgecb
+
+# Copy binaries from builders
+COPY --from=rust-builder /build/target/release/edgecb-server /usr/local/bin/
+COPY --from=rust-builder /build/target/release/edgecb-query /usr/local/bin/
+COPY --from=go-builder /bin/edgecb-admin /usr/local/bin/
+COPY --from=go-builder /bin/edgecb-cli /usr/local/bin/
+
+# Copy startup script
+COPY deploy/docker/entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Create data directory
+RUN mkdir -p /data && chown edgecb:edgecb /data
+
+# Switch to app user
+USER edgecb
+
+WORKDIR /data
+
+EXPOSE 8091 8092 8093 8094 9102 11210
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["all"]

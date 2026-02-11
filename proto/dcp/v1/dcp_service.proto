@@ -1,0 +1,189 @@
+syntax = "proto3";
+
+package edgecb.dcp.v1;
+
+option go_package = "github.com/edgecouchbase/edgecouchbase/proto/dcp/v1;dcppb";
+
+// DCPService provides the Database Change Protocol for streaming mutations.
+// This is used for replication, indexing, analytics, and eventing.
+service DCPService {
+  // OpenStream opens a DCP stream for a vBucket
+  rpc OpenStream(OpenStreamRequest) returns (stream OpenStreamResponse);
+  
+  // CloseStream closes an active DCP stream
+  rpc CloseStream(CloseStreamRequest) returns (CloseStreamResponse);
+  
+  // GetFailoverLog retrieves the failover history for a vBucket
+  rpc GetFailoverLog(GetFailoverLogRequest) returns (GetFailoverLogResponse);
+  
+  // AddStream adds additional vBuckets to an existing connection
+  rpc AddStream(AddStreamRequest) returns (stream OpenStreamResponse);
+}
+
+// OpenStreamRequest initiates a DCP stream for a vBucket
+message OpenStreamRequest {
+  string bucket = 1;
+  uint32 vbucket_id = 2;
+  
+  // Start sequence number (0 = from beginning)
+  uint64 start_seq_no = 3;
+  
+  // End sequence number (0xFFFFFFFFFFFFFFFF = infinite)
+  uint64 end_seq_no = 4;
+  
+  // vBucket UUID (from failover log)
+  uint64 vbucket_uuid = 5;
+  
+  // Snapshot start/end for resumption
+  uint64 snapshot_start_seq_no = 6;
+  uint64 snapshot_end_seq_no = 7;
+  
+  // Stream options
+  StreamOptions options = 8;
+}
+
+message StreamOptions {
+  // Stream name (for tracking/debugging)
+  string name = 1;
+  
+  // Buffer size (mutations to buffer before backpressure)
+  uint32 buffer_size = 2;
+  
+  // Include document bodies (false = keys only)
+  bool include_value = 3;
+  
+  // Include extended attributes (XATTR)
+  bool include_xattrs = 4;
+  
+  // Include deletions
+  bool include_deletions = 5;
+  
+  // Include expirations
+  bool include_expirations = 6;
+}
+
+// OpenStreamResponse is a stream of DCP messages
+message OpenStreamResponse {
+  oneof message {
+    StreamStarted stream_started = 1;
+    SnapshotMarker snapshot_marker = 2;
+    Mutation mutation = 3;
+    Deletion deletion = 4;
+    Expiration expiration = 5;
+    StreamEnd stream_end = 6;
+    Error error = 7;
+  }
+}
+
+message StreamStarted {
+  uint32 vbucket_id = 1;
+  uint64 start_seq_no = 2;
+  uint64 end_seq_no = 3;
+  uint64 vbucket_uuid = 4;
+  uint64 high_seq_no = 5; // Current high water mark
+}
+
+// SnapshotMarker indicates a consistent snapshot boundary
+message SnapshotMarker {
+  uint64 start_seq_no = 1;
+  uint64 end_seq_no = 2;
+  SnapshotType type = 3;
+  
+  enum SnapshotType {
+    SNAPSHOT_MEMORY = 0;
+    SNAPSHOT_DISK = 1;
+  }
+}
+
+message Mutation {
+  uint64 seq_no = 1;
+  string key = 2;
+  bytes value = 3;
+  uint64 cas = 4;
+  uint32 flags = 5;
+  uint64 expiry = 6;
+  uint32 datatype = 7;
+  uint64 rev_seq_no = 8; // Revision sequence number
+  
+  // Extended attributes (optional)
+  bytes xattrs = 9;
+}
+
+message Deletion {
+  uint64 seq_no = 1;
+  string key = 2;
+  uint64 cas = 3;
+  uint64 rev_seq_no = 4;
+  
+  // Deletion metadata
+  bytes deletion_cause = 5;
+}
+
+message Expiration {
+  uint64 seq_no = 1;
+  string key = 2;
+  uint64 cas = 3;
+  uint64 rev_seq_no = 4;
+}
+
+message StreamEnd {
+  uint32 vbucket_id = 1;
+  EndReason reason = 2;
+  
+  enum EndReason {
+    END_OK = 0;
+    END_CLOSED = 1;
+    END_STATE_CHANGED = 2; // vBucket no longer active
+    END_DISCONNECTED = 3;
+    END_TOO_SLOW = 4; // Consumer too slow, dropped
+  }
+}
+
+message CloseStreamRequest {
+  string bucket = 1;
+  uint32 vbucket_id = 2;
+}
+
+message CloseStreamResponse {
+  bool success = 1;
+}
+
+// GetFailoverLogRequest retrieves failover history for a vBucket
+message GetFailoverLogRequest {
+  string bucket = 1;
+  uint32 vbucket_id = 2;
+}
+
+message GetFailoverLogResponse {
+  repeated FailoverLogEntry entries = 1;
+}
+
+message FailoverLogEntry {
+  uint64 vbucket_uuid = 1;
+  uint64 seq_no = 2; // Sequence number when this vBucket became active
+}
+
+message AddStreamRequest {
+  string bucket = 1;
+  repeated uint32 vbucket_ids = 2;
+  uint64 start_seq_no = 3;
+  uint64 end_seq_no = 4;
+  StreamOptions options = 5;
+}
+
+message Error {
+  ErrorCode code = 1;
+  string message = 2;
+  
+  enum ErrorCode {
+    ERROR_UNKNOWN = 0;
+    ERROR_VBUCKET_NOT_ACTIVE = 1;
+    ERROR_ROLLBACK_REQUIRED = 2; // Client needs to rollback to seq_no
+    ERROR_STREAM_NOT_FOUND = 3;
+    ERROR_BUCKET_NOT_FOUND = 4;
+    ERROR_OUT_OF_RANGE = 5;
+  }
+  
+  // For ERROR_ROLLBACK_REQUIRED
+  uint64 rollback_seq_no = 3;
+}

@@ -1,0 +1,223 @@
+syntax = "proto3";
+
+package edgecb.kv.v1;
+
+option go_package = "github.com/edgecouchbase/edgecouchbase/proto/kv/v1;kvpb";
+
+// DataService provides key-value operations for document storage.
+service DataService {
+  // Get retrieves a document by key
+  rpc Get(GetRequest) returns (GetResponse);
+  
+  // Set inserts or updates a document
+  rpc Set(SetRequest) returns (SetResponse);
+  
+  // Delete removes a document
+  rpc Delete(DeleteRequest) returns (DeleteResponse);
+  
+  // GetMulti retrieves multiple documents in a single call
+  rpc GetMulti(GetMultiRequest) returns (GetMultiRequest);
+  
+  // Touch updates the expiration time of a document
+  rpc Touch(TouchRequest) returns (TouchResponse);
+  
+  // Increment atomically increments a counter document
+  rpc Increment(IncrementRequest) returns (IncrementResponse);
+  
+  // Decrement atomically decrements a counter document
+  rpc Decrement(DecrementRequest) returns (DecrementResponse);
+}
+
+// Document represents a stored JSON document
+message Document {
+  string key = 1;
+  bytes value = 2;  // JSON bytes
+  uint64 cas = 3;   // Compare-and-swap value
+  uint32 flags = 4; // User-defined flags
+  uint64 expiry = 5; // Unix timestamp (0 = no expiry)
+  uint64 seq_no = 6; // Sequence number (for DCP)
+  Datatype datatype = 7;
+}
+
+enum Datatype {
+  DATATYPE_UNSPECIFIED = 0;
+  DATATYPE_JSON = 1;
+  DATATYPE_BINARY = 2;
+  DATATYPE_COMPRESSED = 3;
+}
+
+// Durability requirements for a write operation
+enum DurabilityLevel {
+  DURABILITY_NONE = 0;
+  DURABILITY_MAJORITY = 1;
+  DURABILITY_MAJORITY_AND_PERSIST_ACTIVE = 2;
+  DURABILITY_PERSIST_TO_MAJORITY = 3;
+}
+
+message GetRequest {
+  string bucket = 1;
+  string scope = 2;
+  string collection = 3;
+  string key = 4;
+  
+  // Optional: read from replica (eventual consistency)
+  bool allow_replica = 5;
+  
+  // Optional: maximum staleness in milliseconds (for replica reads)
+  uint32 max_staleness_ms = 6;
+}
+
+message GetResponse {
+  oneof result {
+    Document document = 1;
+    Error error = 2;
+  }
+}
+
+message SetRequest {
+  string bucket = 1;
+  string scope = 2;
+  string collection = 3;
+  string key = 4;
+  bytes value = 5;
+  uint32 flags = 6;
+  uint64 expiry = 7; // 0 = no expiry
+  
+  // Durability level
+  DurabilityLevel durability = 8;
+  
+  // Optional: CAS for optimistic locking (0 = ignore)
+  uint64 cas = 9;
+  
+  // Optional: create only if key doesn't exist
+  bool create_only = 10;
+  
+  // Optional: update only if key exists
+  bool update_only = 11;
+}
+
+message SetResponse {
+  oneof result {
+    SetResult success = 1;
+    Error error = 2;
+  }
+}
+
+message SetResult {
+  uint64 cas = 1;
+  uint64 seq_no = 2;
+  uint16 vbucket_id = 3;
+}
+
+message DeleteRequest {
+  string bucket = 1;
+  string scope = 2;
+  string collection = 3;
+  string key = 4;
+  
+  DurabilityLevel durability = 5;
+  
+  // Optional: CAS for optimistic locking
+  uint64 cas = 6;
+}
+
+message DeleteResponse {
+  oneof result {
+    DeleteResult success = 1;
+    Error error = 2;
+  }
+}
+
+message DeleteResult {
+  uint64 cas = 1;
+  uint64 seq_no = 2;
+}
+
+message GetMultiRequest {
+  string bucket = 1;
+  string scope = 2;
+  string collection = 3;
+  repeated string keys = 4;
+  bool allow_replica = 5;
+}
+
+message GetMultiResponse {
+  map<string, Document> documents = 1;
+  repeated string missing_keys = 2;
+}
+
+message TouchRequest {
+  string bucket = 1;
+  string scope = 2;
+  string collection = 3;
+  string key = 4;
+  uint64 expiry = 5;
+  uint64 cas = 6;
+}
+
+message TouchResponse {
+  oneof result {
+    uint64 new_cas = 1;
+    Error error = 2;
+  }
+}
+
+message IncrementRequest {
+  string bucket = 1;
+  string scope = 2;
+  string collection = 3;
+  string key = 4;
+  int64 delta = 5;
+  uint64 initial = 6; // If key doesn't exist, create with this value
+  uint64 expiry = 7;
+}
+
+message IncrementResponse {
+  oneof result {
+    CounterResult success = 1;
+    Error error = 2;
+  }
+}
+
+message DecrementRequest {
+  string bucket = 1;
+  string scope = 2;
+  string collection = 3;
+  string key = 4;
+  int64 delta = 5;
+  uint64 initial = 6;
+  uint64 expiry = 7;
+}
+
+message DecrementResponse {
+  oneof result {
+    CounterResult success = 1;
+    Error error = 2;
+  }
+}
+
+message CounterResult {
+  uint64 value = 1;
+  uint64 cas = 2;
+}
+
+// Error codes aligned with Couchbase SDK conventions
+message Error {
+  ErrorCode code = 1;
+  string message = 2;
+  
+  enum ErrorCode {
+    ERROR_UNKNOWN = 0;
+    ERROR_KEY_NOT_FOUND = 1;
+    ERROR_KEY_EXISTS = 2;
+    ERROR_CAS_MISMATCH = 3;
+    ERROR_TIMEOUT = 4;
+    ERROR_DURABILITY_IMPOSSIBLE = 5;
+    ERROR_DURABILITY_AMBIGUOUS = 6;
+    ERROR_BUCKET_NOT_FOUND = 7;
+    ERROR_SCOPE_NOT_FOUND = 8;
+    ERROR_COLLECTION_NOT_FOUND = 9;
+    ERROR_VBUCKET_NOT_ACTIVE = 10;
+    ERROR_NODE_NOT_AVAILABLE = 11;
+  }
+}

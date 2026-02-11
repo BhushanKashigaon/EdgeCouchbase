@@ -1,0 +1,24 @@
+[package]
+name = "edgecb-search"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio.workspace = true
+tonic.workspace = true
+prost.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+
+[build-dependencies]
+tonic-build.workspace = true
+
+[[bin]]
+name = "edgecb-search"
+path = "src/main.rs"

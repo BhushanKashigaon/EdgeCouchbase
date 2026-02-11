@@ -1,0 +1,340 @@
+syntax = "proto3";
+
+package edgecb.admin.v1;
+
+option go_package = "github.com/edgecouchbase/edgecouchbase/proto/admin/v1;adminpb";
+
+import "google/protobuf/timestamp.proto";
+
+// AdminService provides cluster management and administrative operations.
+service AdminService {
+  // Cluster operations
+  rpc GetClusterInfo(GetClusterInfoRequest) returns (GetClusterInfoResponse);
+  rpc InitCluster(InitClusterRequest) returns (InitClusterResponse);
+  rpc AddNode(AddNodeRequest) returns (AddNodeResponse);
+  rpc RemoveNode(RemoveNodeRequest) returns (RemoveNodeResponse);
+  rpc Rebalance(RebalanceRequest) returns (stream RebalanceResponse);
+  rpc Failover(FailoverRequest) returns (FailoverResponse);
+  
+  // Bucket operations
+  rpc CreateBucket(CreateBucketRequest) returns (CreateBucketResponse);
+  rpc DeleteBucket(DeleteBucketRequest) returns (DeleteBucketResponse);
+  rpc ListBuckets(ListBucketsRequest) returns (ListBucketsResponse);
+  rpc GetBucketInfo(GetBucketInfoRequest) returns (GetBucketInfoResponse);
+  
+  // Scope and Collection operations
+  rpc CreateScope(CreateScopeRequest) returns (CreateScopeResponse);
+  rpc DeleteScope(DeleteScopeRequest) returns (DeleteScopeResponse);
+  rpc CreateCollection(CreateCollectionRequest) returns (CreateCollectionResponse);
+  rpc DeleteCollection(DeleteCollectionRequest) returns (DeleteCollectionResponse);
+  
+  // Health and metrics
+  rpc GetNodeHealth(GetNodeHealthRequest) returns (GetNodeHealthResponse);
+  rpc GetClusterMetrics(GetClusterMetricsRequest) returns (GetClusterMetricsResponse);
+}
+
+// Cluster Information
+
+message GetClusterInfoRequest {}
+
+message GetClusterInfoResponse {
+  ClusterInfo cluster = 1;
+}
+
+message ClusterInfo {
+  string cluster_id = 1;
+  string cluster_name = 2;
+  repeated NodeInfo nodes = 3;
+  ClusterMap cluster_map = 4;
+  uint64 cluster_map_version = 5;
+}
+
+message NodeInfo {
+  string node_id = 1;
+  string hostname = 2;
+  repeated ServiceInfo services = 3;
+  NodeStatus status = 4;
+  google.protobuf.Timestamp joined_at = 5;
+  
+  enum NodeStatus {
+    NODE_STATUS_UNKNOWN = 0;
+    NODE_STATUS_ACTIVE = 1;
+    NODE_STATUS_WARMUP = 2;
+    NODE_STATUS_FAILED = 3;
+    NODE_STATUS_LEAVING = 4;
+  }
+}
+
+message ServiceInfo {
+  ServiceType type = 1;
+  uint32 port = 2;
+  bool enabled = 3;
+  
+  enum ServiceType {
+    SERVICE_UNKNOWN = 0;
+    SERVICE_DATA = 1;
+    SERVICE_QUERY = 2;
+    SERVICE_INDEX = 3;
+    SERVICE_SEARCH = 4;
+    SERVICE_ANALYTICS = 5;
+    SERVICE_EVENTING = 6;
+    SERVICE_BACKUP = 7;
+  }
+}
+
+message ClusterMap {
+  uint64 version = 1; // Raft log index
+  repeated VBucketMap vbuckets = 2;
+}
+
+message VBucketMap {
+  string bucket = 1;
+  uint32 vbucket_id = 2;
+  string active_node = 3;
+  repeated string replica_nodes = 4;
+}
+
+// Cluster Initialization
+
+message InitClusterRequest {
+  string cluster_name = 1;
+  string admin_username = 2;
+  string admin_password = 3;
+  uint32 memory_quota_mb = 4; // RAM quota for data service
+}
+
+message InitClusterResponse {
+  string cluster_id = 1;
+  bool success = 2;
+}
+
+// Node Management
+
+message AddNodeRequest {
+  string hostname = 1;
+  repeated ServiceInfo.ServiceType services = 2;
+}
+
+message AddNodeResponse {
+  string node_id = 1;
+  bool success = 2;
+}
+
+message RemoveNodeRequest {
+  string node_id = 1;
+  bool graceful = 2; // If true, rebalance before removing
+}
+
+message RemoveNodeResponse {
+  bool success = 1;
+}
+
+// Rebalance
+
+message RebalanceRequest {
+  // Nodes to keep (empty = all healthy nodes)
+  repeated string node_ids = 1;
+}
+
+message RebalanceResponse {
+  oneof event {
+    RebalanceStarted started = 1;
+    RebalanceProgress progress = 2;
+    RebalanceCompleted completed = 3;
+    RebalanceError error = 4;
+  }
+}
+
+message RebalanceStarted {
+  uint32 total_vbuckets = 1;
+  google.protobuf.Timestamp started_at = 2;
+}
+
+message RebalanceProgress {
+  uint32 vbuckets_moved = 1;
+  uint32 total_vbuckets = 2;
+  uint32 percent_complete = 3;
+}
+
+message RebalanceCompleted {
+  google.protobuf.Timestamp completed_at = 1;
+  uint32 vbuckets_moved = 2;
+}
+
+message RebalanceError {
+  string message = 1;
+}
+
+// Failover
+
+message FailoverRequest {
+  string node_id = 1;
+  bool hard = 2; // If true, immediate; else graceful
+}
+
+message FailoverResponse {
+  bool success = 1;
+  repeated uint32 vbuckets_failed_over = 2;
+}
+
+// Bucket Management
+
+message CreateBucketRequest {
+  string name = 1;
+  BucketType type = 2;
+  uint32 memory_quota_mb = 3;
+  uint32 replica_count = 4; // 0-3
+  bool flush_enabled = 5;
+  uint32 max_ttl_seconds = 6; // 0 = no limit
+  CompressionMode compression = 7;
+  
+  enum BucketType {
+    BUCKET_TYPE_COUCHBASE = 0; // Persistent
+    BUCKET_TYPE_EPHEMERAL = 1; // Memory-only
+  }
+  
+  enum CompressionMode {
+    COMPRESSION_OFF = 0;
+    COMPRESSION_PASSIVE = 1;
+    COMPRESSION_ACTIVE = 2;
+  }
+}
+
+message CreateBucketResponse {
+  bool success = 1;
+}
+
+message DeleteBucketRequest {
+  string name = 1;
+}
+
+message DeleteBucketResponse {
+  bool success = 1;
+}
+
+message ListBucketsRequest {}
+
+message ListBucketsResponse {
+  repeated BucketInfo buckets = 1;
+}
+
+message GetBucketInfoRequest {
+  string name = 1;
+}
+
+message GetBucketInfoResponse {
+  BucketInfo bucket = 1;
+}
+
+message BucketInfo {
+  string name = 1;
+  CreateBucketRequest.BucketType type = 2;
+  uint32 memory_quota_mb = 3;
+  uint32 replica_count = 4;
+  uint64 item_count = 5;
+  uint64 memory_used_bytes = 6;
+  uint64 disk_used_bytes = 7;
+  repeated ScopeInfo scopes = 8;
+}
+
+// Scope and Collection Management
+
+message CreateScopeRequest {
+  string bucket = 1;
+  string scope = 2;
+}
+
+message CreateScopeResponse {
+  bool success = 1;
+}
+
+message DeleteScopeRequest {
+  string bucket = 1;
+  string scope = 2;
+}
+
+message DeleteScopeResponse {
+  bool success = 1;
+}
+
+message CreateCollectionRequest {
+  string bucket = 1;
+  string scope = 2;
+  string collection = 3;
+  uint32 max_ttl_seconds = 4; // 0 = inherit from bucket
+}
+
+message CreateCollectionResponse {
+  bool success = 1;
+  uint32 collection_id = 2;
+}
+
+message DeleteCollectionRequest {
+  string bucket = 1;
+  string scope = 2;
+  string collection = 3;
+}
+
+message DeleteCollectionResponse {
+  bool success = 1;
+}
+
+message ScopeInfo {
+  string name = 1;
+  repeated CollectionInfo collections = 2;
+}
+
+message CollectionInfo {
+  string name = 1;
+  uint32 collection_id = 2;
+  uint64 item_count = 3;
+}
+
+// Health and Metrics
+
+message GetNodeHealthRequest {
+  string node_id = 1; // Empty = current node
+}
+
+message GetNodeHealthResponse {
+  HealthStatus status = 1;
+  repeated ServiceHealth services = 2;
+  
+  enum HealthStatus {
+    HEALTH_UNKNOWN = 0;
+    HEALTH_HEALTHY = 1;
+    HEALTH_DEGRADED = 2;
+    HEALTH_UNHEALTHY = 3;
+  }
+}
+
+message ServiceHealth {
+  ServiceInfo.ServiceType type = 1;
+  GetNodeHealthResponse.HealthStatus status = 2;
+  string message = 3;
+}
+
+message GetClusterMetricsRequest {}
+
+message GetClusterMetricsResponse {
+  ClusterMetrics metrics = 1;
+}
+
+message ClusterMetrics {
+  uint64 total_ops_per_sec = 1;
+  uint64 total_gets_per_sec = 2;
+  uint64 total_sets_per_sec = 3;
+  double avg_get_latency_ms = 4;
+  double avg_set_latency_ms = 5;
+  uint64 total_memory_used_bytes = 6;
+  uint64 total_disk_used_bytes = 7;
+  map<string, BucketMetrics> bucket_metrics = 8;
+}
+
+message BucketMetrics {
+  string bucket_name = 1;
+  uint64 ops_per_sec = 2;
+  uint64 item_count = 3;
+  uint64 memory_used_bytes = 4;
+  uint64 disk_used_bytes = 5;
+}

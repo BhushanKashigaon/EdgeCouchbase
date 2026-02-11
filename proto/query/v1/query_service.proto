@@ -1,0 +1,150 @@
+syntax = "proto3";
+
+package edgecb.query.v1;
+
+option go_package = "github.com/edgecouchbase/edgecouchbase/proto/query/v1;querypb";
+
+import "google/protobuf/struct.proto";
+
+// QueryService provides SQL++ query execution.
+service QueryService {
+  // Execute runs a SQL++ query and returns results
+  rpc Execute(ExecuteRequest) returns (stream ExecuteResponse);
+  
+  // Prepare prepares a query for repeated execution
+  rpc Prepare(PrepareRequest) returns (PrepareResponse);
+  
+  // ExecutePrepared executes a previously prepared query
+  rpc ExecutePrepared(ExecutePreparedRequest) returns (stream ExecuteResponse);
+  
+  // Explain returns the query execution plan without running it
+  rpc Explain(ExplainRequest) returns (ExplainResponse);
+}
+
+message ExecuteRequest {
+  string statement = 1;
+  
+  // Query parameters (for parameterized queries: $param or ?
+  map<string, google.protobuf.Value> named_params = 2;
+  repeated google.protobuf.Value positional_params = 3;
+  
+  // Query options
+  QueryOptions options = 4;
+}
+
+message QueryOptions {
+  // Timeout for query execution
+  uint32 timeout_ms = 1;
+  
+  // Read consistency
+  ScanConsistency scan_consistency = 2;
+  
+  // Maximum parallelism (0 = auto)
+  uint32 max_parallelism = 3;
+  
+  // Pipeline batch size
+  uint32 pipeline_batch = 4;
+  
+  // Pipeline capacity
+  uint32 pipeline_cap = 5;
+  
+  // Scan wait time for NOT_BOUNDED consistency
+  uint32 scan_wait_ms = 6;
+  
+  // Query context (default bucket.scope)
+  string query_context = 7;
+  
+  // Client context ID for tracking
+  string client_context_id = 8;
+  
+  // Enable metrics in response
+  bool metrics = 9;
+  
+  // Enable profiling
+  bool profile = 10;
+  
+  enum ScanConsistency {
+    SCAN_CONSISTENCY_NOT_BOUNDED = 0; // Eventually consistent
+    SCAN_CONSISTENCY_REQUEST_PLUS = 1; // Read your writes
+    SCAN_CONSISTENCY_STATEMENT_PLUS = 2; // Linearizable (requires mutation tokens)
+  }
+}
+
+message ExecuteResponse {
+  oneof message {
+    ResultRow row = 1;
+    QueryMetrics metrics = 2;
+    QueryWarning warning = 3;
+    QueryError error = 4;
+    QueryStatus status = 5;
+  }
+}
+
+message ResultRow {
+  google.protobuf.Struct data = 1;
+}
+
+message QueryMetrics {
+  uint64 elapsed_time_ms = 1;
+  uint64 execution_time_ms = 2;
+  uint64 result_count = 3;
+  uint64 result_size_bytes = 4;
+  uint64 mutation_count = 5;
+  uint64 sort_count = 6;
+  uint64 error_count = 7;
+  uint64 warning_count = 8;
+}
+
+message QueryWarning {
+  uint32 code = 1;
+  string message = 2;
+}
+
+message QueryError {
+  uint32 code = 1;
+  string message = 2;
+  string reason = 3;
+}
+
+message QueryStatus {
+  string status = 1; // "success", "errors", "fatal"
+  string request_id = 2;
+  string client_context_id = 3;
+}
+
+// Prepared Statements
+
+message PrepareRequest {
+  string statement = 1;
+  string query_context = 2;
+}
+
+message PrepareResponse {
+  string prepared_name = 1;
+  bytes encoded_plan = 2; // Opaque query plan
+  google.protobuf.Struct plan_text = 3; // Human-readable (if explain enabled)
+}
+
+message ExecutePreparedRequest {
+  string prepared_name = 1;
+  bytes encoded_plan = 2;
+  
+  map<string, google.protobuf.Value> named_params = 3;
+  repeated google.protobuf.Value positional_params = 4;
+  
+  QueryOptions options = 5;
+}
+
+// Explain
+
+message ExplainRequest {
+  string statement = 1;
+  map<string, google.protobuf.Value> named_params = 2;
+  repeated google.protobuf.Value positional_params = 3;
+  string query_context = 4;
+}
+
+message ExplainResponse {
+  google.protobuf.Struct plan = 1;
+  string plan_text = 2;
+}

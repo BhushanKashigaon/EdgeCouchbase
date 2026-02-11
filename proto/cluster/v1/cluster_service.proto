@@ -1,0 +1,184 @@
+syntax = "proto3";
+
+package edgecb.cluster.v1;
+
+option go_package = "github.com/edgecouchbase/edgecouchbase/proto/cluster/v1;clusterpb";
+
+import "google/protobuf/timestamp.proto";
+
+// ClusterService manages cluster membership, consensus, and coordination.
+service ClusterService {
+  // Join requests to join an existing cluster
+  rpc Join(JoinRequest) returns (JoinResponse);
+  
+  // Leave gracefully removes a node from the cluster
+  rpc Leave(LeaveRequest) returns (LeaveResponse);
+  
+  // Heartbeat maintains node liveness
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  
+  // GetClusterMap retrieves the current vBucket distribution
+  rpc GetClusterMap(GetClusterMapRequest) returns (GetClusterMapResponse);
+  
+  // UpdateClusterMap updates vBucket assignments (Raft-coordinated)
+  rpc UpdateClusterMap(UpdateClusterMapRequest) returns (UpdateClusterMapResponse);
+  
+  // GetNodes lists all nodes in the cluster
+  rpc GetNodes(GetNodesRequest) returns (GetNodesResponse);
+}
+
+message JoinRequest {
+  string node_id = 1;
+  string hostname = 2;
+  repeated ServiceEndpoint services = 3;
+  
+  // Optional: join token for authentication
+  string join_token = 4;
+  
+  // Desired services to run on this node
+  repeated string desired_services = 5;
+}
+
+message ServiceEndpoint {
+  string service_name = 1;  // "data", "query", "index", etc.
+  uint32 port = 2;
+  bool tls_enabled = 3;
+}
+
+message JoinResponse {
+  bool accepted = 1;
+  string message = 2;
+  ClusterMapVersion cluster_map_version = 3;
+  string cluster_uuid = 4;
+}
+
+message LeaveRequest {
+  string node_id = 1;
+  bool force = 2;  // Force removal without rebalance
+}
+
+message LeaveResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message HeartbeatRequest {
+  string node_id = 1;
+  NodeStatus status = 2;
+  ResourceUsage resources = 3;
+}
+
+message NodeStatus {
+  NodeState state = 1;
+  uint64 uptime_seconds = 2;
+  repeated string active_services = 3;
+  
+  enum NodeState {
+    NODE_STATE_STARTING = 0;
+    NODE_STATE_WARMUP = 1;
+    NODE_STATE_ACTIVE = 2;
+    NODE_STATE_DRAINING = 3;
+    NODE_STATE_FAILED = 4;
+  }
+}
+
+message ResourceUsage {
+  double cpu_percent = 1;
+  uint64 memory_used_bytes = 2;
+  uint64 memory_total_bytes = 3;
+  uint64 disk_used_bytes = 4;
+  uint64 disk_total_bytes = 5;
+  uint64 network_rx_bytes = 6;
+  uint64 network_tx_bytes = 7;
+}
+
+message HeartbeatResponse {
+  bool ack = 1;
+  ClusterMapVersion cluster_map_version = 2;
+  repeated ClusterCommand commands = 3;  // Cluster manager can send commands
+}
+
+message ClusterCommand {
+  oneof command_type {
+    RebalanceCommand rebalance = 1;
+    FailoverCommand failover = 2;
+    UpdateServicesCommand update_services = 3;
+  }
+}
+
+message RebalanceCommand {
+  string rebalance_id = 1;
+}
+
+message FailoverCommand {
+  string node_id = 1;
+  bool hard_failover = 2;
+}
+
+message UpdateServicesCommand {
+  repeated string services_to_add = 1;
+  repeated string services_to_remove = 2;
+}
+
+message GetClusterMapRequest {
+  // Optional: specific version
+  uint64 version = 1;  // 0 = latest
+}
+
+message GetClusterMapResponse {
+  ClusterMap cluster_map = 1;
+}
+
+message ClusterMap {
+  ClusterMapVersion version = 1;
+  repeated VBucketMap vbuckets = 2;
+  repeated NodeInfo nodes = 3;
+}
+
+message ClusterMapVersion {
+  uint64 version = 1;  // Raft log index
+  google.protobuf.Timestamp updated_at = 2;
+}
+
+message VBucketMap {
+  string bucket = 1;
+  uint32 vbucket_id = 2;
+  string active_node = 3;
+  repeated ReplicaInfo replicas = 4;
+}
+
+message ReplicaInfo {
+  string node_id = 1;
+  uint32 replica_number = 2;  // 1, 2, 3 (for multiple replicas)
+}
+
+message NodeInfo {
+  string node_id = 1;
+  string hostname = 2;
+  repeated ServiceEndpoint services = 3;
+  NodeStatus status = 4;
+  google.protobuf.Timestamp joined_at = 5;
+}
+
+message UpdateClusterMapRequest {
+  ClusterMap new_cluster_map = 1;
+  
+  // Raft consensus fields
+  uint64 expected_version = 2;  // Optimistic concurrency
+  string proposer_node_id = 3;
+}
+
+message UpdateClusterMapResponse {
+  bool accepted = 1;
+  string message = 2;
+  ClusterMapVersion new_version = 3;
+}
+
+message GetNodesRequest {
+  // Optional: filter by service
+  string service = 1;
+}
+
+message GetNodesResponse {
+  repeated NodeInfo nodes = 1;
+}

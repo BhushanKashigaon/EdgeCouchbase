@@ -1,0 +1,294 @@
+syntax = "proto3";
+
+package edgecb.backup.v1;
+
+option go_package = "github.com/edgecouchbase/edgecouchbase/proto/backup/v1;backuppb";
+
+import "google/protobuf/timestamp.proto";
+
+// BackupService provides backup and restore capabilities.
+service BackupService {
+  // CreateBackup initiates a new backup
+  rpc CreateBackup(CreateBackupRequest) returns (stream CreateBackupResponse);
+  
+  // ListBackups lists available backups
+  rpc ListBackups(ListBackupsRequest) returns (ListBackupsResponse);
+  
+  // DeleteBackup removes a backup
+  rpc DeleteBackup(DeleteBackupRequest) returns (DeleteBackupResponse);
+  
+  // RestoreBackup restores data from a backup
+  rpc RestoreBackup(RestoreBackupRequest) returns (stream RestoreBackupResponse);
+  
+  // GetBackupInfo retrieves backup metadata
+  rpc GetBackupInfo(GetBackupInfoRequest) returns (GetBackupInfoResponse);
+}
+
+message CreateBackupRequest {
+  string backup_name = 1;
+  
+  // What to backup
+  repeated string buckets = 2;  // Empty = all buckets
+  
+  // Backup type
+  BackupType backup_type = 3;
+  
+  // Storage location
+  StorageLocation location = 4;
+  
+  // Backup options
+  BackupOptions options = 5;
+  
+  enum BackupType {
+    BACKUP_TYPE_FULL = 0;
+    BACKUP_TYPE_INCREMENTAL = 1;
+    BACKUP_TYPE_DIFFERENTIAL = 2;
+  }
+}
+
+message StorageLocation {
+  oneof location_type {
+    LocalStorage local = 1;
+    S3Storage s3 = 2;
+    AzureStorage azure = 3;
+    GCSStorage gcs = 4;
+  }
+}
+
+message LocalStorage {
+  string path = 1;
+}
+
+message S3Storage {
+  string bucket = 1;
+  string prefix = 2;
+  string region = 3;
+  string access_key_id = 4;
+  string secret_access_key = 5;
+  string endpoint = 6;  // For S3-compatible storage
+}
+
+message AzureStorage {
+  string container = 1;
+  string account_name = 2;
+  string account_key = 3;
+}
+
+message GCSStorage {
+  string bucket = 1;
+  string prefix = 2;
+  string credentials_json = 3;
+}
+
+message BackupOptions {
+  // Compression
+  bool compress = 1;
+  CompressionType compression_type = 2;
+  
+  // Encryption
+  bool encrypt = 3;
+  bytes encryption_key = 4;
+  
+  // Parallelism
+  uint32 threads = 5;
+  
+  // Include cluster configuration
+  bool include_cluster_config = 6;
+  
+  // Include indexes
+  bool include_indexes = 7;
+  
+  // Include analytics datasets
+  bool include_analytics = 8;
+  
+  enum CompressionType {
+    COMPRESSION_TYPE_GZIP = 0;
+    COMPRESSION_TYPE_ZSTD = 1;
+    COMPRESSION_TYPE_LZ4 = 2;
+  }
+}
+
+message CreateBackupResponse {
+  oneof message {
+    BackupProgress progress = 1;
+    BackupComplete complete = 2;
+    BackupError error = 3;
+  }
+}
+
+message BackupProgress {
+  string backup_name = 1;
+  uint64 bytes_transferred = 2;
+  uint64 total_bytes = 3;
+  uint64 items_transferred = 4;
+  uint64 total_items = 5;
+  double percent_complete = 6;
+  string current_bucket = 7;
+}
+
+message BackupComplete {
+  string backup_name = 1;
+  string backup_id = 2;
+  uint64 total_bytes = 3;
+  uint64 total_items = 4;
+  uint64 duration_ms = 5;
+  google.protobuf.Timestamp completed_at = 6;
+}
+
+message BackupError {
+  uint32 code = 1;
+  string message = 2;
+}
+
+message ListBackupsRequest {
+  // Optional: filter by location
+  StorageLocation location = 1;
+}
+
+message ListBackupsResponse {
+  repeated BackupInfo backups = 1;
+}
+
+message BackupInfo {
+  string backup_name = 1;
+  string backup_id = 2;
+  BackupType backup_type = 3;
+  repeated string buckets = 4;
+  uint64 size_bytes = 5;
+  google.protobuf.Timestamp created_at = 6;
+  StorageLocation location = 7;
+  
+  enum BackupType {
+    BACKUP_TYPE_FULL = 0;
+    BACKUP_TYPE_INCREMENTAL = 1;
+    BACKUP_TYPE_DIFFERENTIAL = 2;
+  }
+}
+
+message DeleteBackupRequest {
+  string backup_id = 1;
+  StorageLocation location = 2;
+}
+
+message DeleteBackupResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message RestoreBackupRequest {
+  string backup_id = 1;
+  StorageLocation location = 2;
+  
+  // What to restore
+  repeated string buckets = 3;  // Empty = all buckets from backup
+  
+  // Restore options
+  RestoreOptions options = 4;
+}
+
+message RestoreOptions {
+  // Restore mode
+  RestoreMode mode = 1;
+  
+  // Parallelism
+  uint32 threads = 2;
+  
+  // Bucket mapping (old name -> new name)
+  map<string, string> bucket_mapping = 3;
+  
+  // Point-in-time restore (timestamp)
+  google.protobuf.Timestamp point_in_time = 4;
+  
+  // Skip errors and continue
+  bool force = 5;
+  
+  enum RestoreMode {
+    RESTORE_MODE_APPEND = 0;      // Add to existing data
+    RESTORE_MODE_REPLACE = 1;     // Replace existing data
+    RESTORE_MODE_SKIP_EXISTING = 2; // Skip if document exists
+  }
+}
+
+message RestoreBackupResponse {
+  oneof message {
+    RestoreProgress progress = 1;
+    RestoreComplete complete = 2;
+    RestoreError error = 3;
+  }
+}
+
+message RestoreProgress {
+  string backup_id = 1;
+  uint64 items_restored = 2;
+  uint64 total_items = 3;
+  uint64 items_skipped = 4;
+  uint64 items_failed = 5;
+  double percent_complete = 6;
+  string current_bucket = 7;
+}
+
+message RestoreComplete {
+  string backup_id = 1;
+  uint64 items_restored = 2;
+  uint64 items_skipped = 3;
+  uint64 items_failed = 4;
+  uint64 duration_ms = 5;
+  google.protobuf.Timestamp completed_at = 6;
+}
+
+message RestoreError {
+  uint32 code = 1;
+  string message = 2;
+}
+
+message GetBackupInfoRequest {
+  string backup_id = 1;
+  StorageLocation location = 2;
+}
+
+message GetBackupInfoResponse {
+  BackupInfo info = 1;
+  BackupManifest manifest = 2;
+}
+
+message BackupManifest {
+  string backup_id = 1;
+  google.protobuf.Timestamp created_at = 2;
+  string cluster_uuid = 3;
+  repeated BucketBackup buckets = 4;
+  ClusterConfig cluster_config = 5;
+}
+
+message BucketBackup {
+  string bucket_name = 1;
+  uint64 doc_count = 2;
+  uint64 size_bytes = 3;
+  repeated ScopeBackup scopes = 4;
+}
+
+message ScopeBackup {
+  string scope_name = 1;
+  repeated CollectionBackup collections = 2;
+}
+
+message CollectionBackup {
+  string collection_name = 1;
+  uint64 doc_count = 2;
+  uint64 size_bytes = 3;
+}
+
+message ClusterConfig {
+  string cluster_name = 1;
+  repeated NodeConfig nodes = 2;
+  repeated UserConfig users = 3;
+}
+
+message NodeConfig {
+  string node_id = 1;
+  repeated string services = 2;
+}
+
+message UserConfig {
+  string username = 1;
+  repeated string roles = 2;
+}

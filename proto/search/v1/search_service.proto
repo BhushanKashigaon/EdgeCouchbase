@@ -1,0 +1,354 @@
+syntax = "proto3";
+
+package edgecb.search.v1;
+
+option go_package = "github.com/edgecouchbase/edgecouchbase/proto/search/v1;searchpb";
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+// SearchService provides full-text search and vector search capabilities.
+service SearchService {
+  // CreateIndex creates a new search index
+  rpc CreateIndex(CreateSearchIndexRequest) returns (CreateSearchIndexResponse);
+  
+  // DeleteIndex removes a search index
+  rpc DeleteIndex(DeleteSearchIndexRequest) returns (DeleteSearchIndexResponse);
+  
+  // ListIndexes lists all search indexes
+  rpc ListIndexes(ListSearchIndexesRequest) returns (ListSearchIndexesResponse);
+  
+  // GetIndexStats retrieves search index statistics
+  rpc GetIndexStats(GetSearchIndexStatsRequest) returns (GetSearchIndexStatsResponse);
+  
+  // Search executes a full-text search query
+  rpc Search(SearchRequest) returns (SearchResponse);
+  
+  // VectorSearch performs vector similarity search (ANN)
+  rpc VectorSearch(VectorSearchRequest) returns (SearchResponse);
+}
+
+message CreateSearchIndexRequest {
+  string index_name = 1;
+  string bucket = 2;
+  string scope = 3;
+  string collection = 4;
+  
+  // Index mapping (field -> analyzer)
+  SearchIndexMapping mapping = 5;
+  
+  // Index parameters
+  SearchIndexParams params = 6;
+}
+
+message SearchIndexMapping {
+  // Default analyzer for unmapped fields
+  string default_analyzer = 1;
+  
+  // Field-specific analyzers
+  map<string, FieldMapping> fields = 2;
+  
+  // Default field for searches
+  string default_field = 3;
+}
+
+message FieldMapping {
+  // Field type
+  FieldType type = 1;
+  
+  // Analyzer name
+  string analyzer = 2;
+  
+  // Include in _all field
+  bool include_in_all = 3;
+  
+  // Index this field
+  bool index = 4;
+  
+  // Store original value
+  bool store = 5;
+  
+  // Include term vectors (for highlighting)
+  bool include_term_vectors = 6;
+  
+  enum FieldType {
+    FIELD_TYPE_TEXT = 0;
+    FIELD_TYPE_KEYWORD = 1;
+    FIELD_TYPE_NUMBER = 2;
+    FIELD_TYPE_DATETIME = 3;
+    FIELD_TYPE_BOOLEAN = 4;
+    FIELD_TYPE_GEOPOINT = 5;
+    FIELD_TYPE_VECTOR = 6;
+  }
+}
+
+message SearchIndexParams {
+  // Number of shards
+  uint32 num_shards = 1;
+  
+  // Number of replicas
+  uint32 num_replicas = 2;
+  
+  // Store source document
+  bool store_source = 3;
+  
+  // Vector dimension (for vector fields)
+  uint32 vector_dimension = 4;
+  
+  // Vector similarity metric
+  VectorMetric vector_metric = 5;
+  
+  enum VectorMetric {
+    VECTOR_METRIC_COSINE = 0;
+    VECTOR_METRIC_EUCLIDEAN = 1;
+    VECTOR_METRIC_DOT_PRODUCT = 2;
+  }
+}
+
+message CreateSearchIndexResponse {
+  bool success = 1;
+  string message = 2;
+  string index_uuid = 3;
+}
+
+message DeleteSearchIndexRequest {
+  string index_name = 1;
+}
+
+message DeleteSearchIndexResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ListSearchIndexesRequest {
+  string bucket = 1;  // Empty = all buckets
+}
+
+message ListSearchIndexesResponse {
+  repeated SearchIndexInfo indexes = 1;
+}
+
+message SearchIndexInfo {
+  string index_name = 1;
+  string index_uuid = 2;
+  string bucket = 3;
+  string scope = 4;
+  string collection = 5;
+  SearchIndexMapping mapping = 6;
+  SearchIndexParams params = 7;
+  IndexState state = 8;
+  uint64 doc_count = 9;
+  
+  enum IndexState {
+    INDEX_STATE_BUILDING = 0;
+    INDEX_STATE_ONLINE = 1;
+    INDEX_STATE_PAUSED = 2;
+  }
+}
+
+message GetSearchIndexStatsRequest {
+  string index_name = 1;
+}
+
+message GetSearchIndexStatsResponse {
+  SearchIndexStats stats = 1;
+}
+
+message SearchIndexStats {
+  string index_name = 1;
+  uint64 doc_count = 2;
+  uint64 index_size_bytes = 3;
+  uint64 query_count = 4;
+  uint64 query_errors = 5;
+  double avg_query_latency_ms = 6;
+  google.protobuf.Timestamp last_updated = 7;
+}
+
+message SearchRequest {
+  string index_name = 1;
+  
+  // Query DSL
+  Query query = 2;
+  
+  // Search options
+  SearchOptions options = 3;
+}
+
+message Query {
+  oneof query_type {
+    MatchQuery match = 1;
+    TermQuery term = 2;
+    PhraseQuery phrase = 3;
+    PrefixQuery prefix = 4;
+    WildcardQuery wildcard = 5;
+    FuzzyQuery fuzzy = 6;
+    RangeQuery range = 7;
+    BoolQuery bool = 8;
+    MatchAllQuery match_all = 9;
+  }
+}
+
+message MatchQuery {
+  string field = 1;
+  string match = 2;
+  string analyzer = 3;
+  double boost = 4;
+}
+
+message TermQuery {
+  string field = 1;
+  string term = 2;
+  double boost = 3;
+}
+
+message PhraseQuery {
+  string field = 1;
+  repeated string terms = 2;
+  uint32 slop = 3;  // allowed distance between terms
+  double boost = 4;
+}
+
+message PrefixQuery {
+  string field = 1;
+  string prefix = 2;
+  double boost = 3;
+}
+
+message WildcardQuery {
+  string field = 1;
+  string wildcard = 2;
+  double boost = 3;
+}
+
+message FuzzyQuery {
+  string field = 1;
+  string term = 2;
+  uint32 fuzziness = 3;  // edit distance (Levenshtein)
+  double boost = 4;
+}
+
+message RangeQuery {
+  string field = 1;
+  google.protobuf.Value min = 2;
+  google.protobuf.Value max = 3;
+  bool min_inclusive = 4;
+  bool max_inclusive = 5;
+  double boost = 6;
+}
+
+message BoolQuery {
+  repeated Query must = 1;      // AND
+  repeated Query should = 2;    // OR
+  repeated Query must_not = 3;  // NOT
+  uint32 minimum_should_match = 4;
+  double boost = 5;
+}
+
+message MatchAllQuery {
+  double boost = 1;
+}
+
+message SearchOptions {
+  // Pagination
+  uint32 from = 1;
+  uint32 size = 2;
+  
+  // Sorting
+  repeated SortSpec sort = 3;
+  
+  // Highlighting
+  HighlightOptions highlight = 4;
+  
+  // Field projection
+  repeated string fields = 5;
+  
+  // Timeout
+  uint32 timeout_ms = 6;
+  
+  // Explain scores
+  bool explain = 7;
+}
+
+message SortSpec {
+  string field = 1;
+  bool descending = 2;
+}
+
+message HighlightOptions {
+  repeated string fields = 1;
+  HighlightStyle style = 2;
+  
+  enum HighlightStyle {
+    HIGHLIGHT_HTML = 0;
+    HIGHLIGHT_ANSI = 1;
+  }
+}
+
+message SearchResponse {
+  SearchStatus status = 1;
+  repeated SearchHit hits = 2;
+  uint64 total_hits = 3;
+  double max_score = 4;
+  uint64 took_ms = 5;
+  FacetResults facets = 6;
+}
+
+message SearchStatus {
+  uint32 total_shards = 1;
+  uint32 successful_shards = 2;
+  uint32 failed_shards = 3;
+  repeated ShardFailure failures = 4;
+}
+
+message ShardFailure {
+  uint32 shard_id = 1;
+  string reason = 2;
+}
+
+message SearchHit {
+  string id = 1;
+  double score = 2;
+  map<string, google.protobuf.Value> fields = 3;
+  map<string, repeated string> highlight = 4;
+  google.protobuf.Struct explanation = 5;
+}
+
+message FacetResults {
+  map<string, FacetResult> facets = 1;
+}
+
+message FacetResult {
+  string field = 1;
+  repeated FacetValue values = 2;
+  uint64 total = 3;
+  uint64 other = 4;
+}
+
+message FacetValue {
+  string name = 1;
+  uint64 count = 2;
+}
+
+message VectorSearchRequest {
+  string index_name = 1;
+  string vector_field = 2;
+  repeated double query_vector = 3;
+  uint32 k = 4;  // number of nearest neighbors
+  
+  // Optional: pre-filter with query
+  Query filter = 5;
+  
+  // Options
+  VectorSearchOptions options = 6;
+}
+
+message VectorSearchOptions {
+  // Field projection
+  repeated string fields = 1;
+  
+  // Timeout
+  uint32 timeout_ms = 2;
+  
+  // Explain scores
+  bool explain = 3;
+}
